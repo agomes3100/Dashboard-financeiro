@@ -77,21 +77,32 @@
         canvas {
             margin-top: 20px;
         }
+        .notification {
+            display: none;
+            background-color: #1abc9c;
+            color: white;
+            padding: 10px;
+            margin-top: 10px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .clear-button {
+            background-color: #e74c3c;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Dashboard de Planejamento Financeiro</h1>
 
-        <!-- Card de renda mensal -->
         <div class="card">
             <h2>Informe sua Renda Mensal</h2>
             <label for="renda">Renda Mensal (R$):</label>
             <input type="number" id="renda" placeholder="Ex: 5000" />
             <p id="data-registro"></p>
+            <div class="notification" id="notification"></div>
         </div>
 
-        <!-- Card de adição de despesas -->
         <div class="card">
             <h2>Adicione Suas Despesas</h2>
             <label for="categoria">Categoria:</label>
@@ -110,7 +121,6 @@
             <label for="valor">Valor da Despesa (R$):</label>
             <input type="number" id="valor" placeholder="Ex: 200" />
 
-            <!-- Campo para especificar a categoria 'Outro' -->
             <div id="outroCategoria" style="display:none;">
                 <label for="categoria-outro">Especifique a categoria "Outro":</label>
                 <input type="text" id="categoria-outro" placeholder="Ex: Exames médicos" />
@@ -119,7 +129,6 @@
             <button onclick="adicionarDespesa()">Adicionar Despesa</button>
         </div>
 
-        <!-- Tabela de despesas -->
         <div class="card">
             <h2>Despesas Adicionadas</h2>
             <table>
@@ -135,22 +144,18 @@
             </table>
         </div>
 
-        <!-- Gráfico de Pizza -->
         <div class="card">
             <h2>Distribuição dos Gastos</h2>
             <canvas id="graficoGastos"></canvas>
         </div>
 
-        <!-- Total de despesas e renda restante -->
         <div class="total">
             <p>Total de Despesas: R$ <span id="total-despesas">0</span></p>
             <p>Renda Restante: R$ <span id="renda-restante">0</span></p>
         </div>
 
-        <!-- Finalizar mês e mostrar histórico -->
         <button onclick="finalizarMes()">Finalizar Mês</button>
 
-        <!-- Tabela de histórico -->
         <div class="card" id="historico-container" style="display:none;">
             <h2>Histórico de Meses Anteriores</h2>
             <table>
@@ -170,6 +175,11 @@
 
         <button onclick="exportarParaCSV()">Exportar para Excel (CSV)</button>
         <button onclick="window.print()">Imprimir em PDF</button>
+        
+        <button class="clear-button" onclick="limparDados()" title="Limpar e Começar Nova Sessão">
+            <img src="https://img.icons8.com/ios-filled/24/ffffff/trash.png" alt="Limpar" />
+            Limpar e Começar Nova Sessão
+        </button>
     </div>
 
     <script>
@@ -189,6 +199,27 @@
         };
         let historico = [];
 
+        // Carrega os dados do localStorage
+        window.onload = function() {
+            if (localStorage.getItem('rendaMensal')) {
+                rendaMensal = parseFloat(localStorage.getItem('rendaMensal'));
+                document.getElementById('renda').value = rendaMensal;
+                atualizarRendaRestante();
+            }
+            if (localStorage.getItem('despesas')) {
+                despesas = JSON.parse(localStorage.getItem('despesas'));
+                totalDespesas = despesas.reduce((acc, despesa) => acc + despesa.valor, 0);
+                atualizarTabelaDespesas();
+                atualizarGrafico();
+                atualizarRendaRestante();
+            }
+            if (localStorage.getItem('historico')) {
+                historico = JSON.parse(localStorage.getItem('historico'));
+                atualizarTabelaHistorico();
+            }
+            atualizarGrafico();
+        };
+
         // Inicializa o gráfico de pizza
         const graficoGastos = new Chart(document.getElementById('graficoGastos'), {
             type: 'pie',
@@ -207,89 +238,71 @@
         // Atualiza a renda mensal e a data de registro
         document.getElementById('renda').addEventListener('change', function() {
             rendaMensal = parseFloat(this.value);
+            localStorage.setItem('rendaMensal', rendaMensal); // Salva no localStorage
             const dataAtual = new Date().toLocaleDateString();
-            document.getElementById('data-registro').innerText = `Data de Registro: ${dataAtual}`;
+            document.getElementById('data-registro').innerText = `Renda registrada em: ${dataAtual}`;
             atualizarRendaRestante();
         });
 
-        // Exibe o campo para categoria "Outro" quando selecionado
-        document.getElementById('categoria').addEventListener('change', function() {
-            if (this.value === 'Outro') {
-                document.getElementById('outroCategoria').style.display = 'block';
-            } else {
-                document.getElementById('outroCategoria').style.display = 'none';
-            }
-        });
-
-        // Adiciona uma despesa
+        // Adiciona despesa
         function adicionarDespesa() {
             let categoria = document.getElementById('categoria').value;
             const valor = parseFloat(document.getElementById('valor').value);
 
+            // Validação
             if (!valor || valor <= 0) {
-                alert('Por favor, insira um valor válido para a despesa.');
+                alert('Por favor, insira um valor válido para a despesa maior que zero.');
                 return;
             }
 
             if (categoria === 'Outro') {
-                categoria = document.getElementById('categoria-outro').value || 'Outro';
-                if (!categorias[categoria]) {
-                    categorias[categoria] = 0;
-                    graficoGastos.data.labels.push(categoria); // Adiciona nova categoria ao gráfico
+                const outroCategoria = document.getElementById('categoria-outro').value.trim();
+                if (outroCategoria === '') {
+                    alert('Por favor, especifique a categoria para "Outro".');
+                    return;
                 }
+                categoria = outroCategoria; // Use the specified category
             }
 
+            // Adiciona despesa ao array
             despesas.push({ categoria, valor });
+            totalDespesas += valor;
             categorias[categoria] += valor;
 
-            const novaLinha = document.createElement('tr');
-            novaLinha.innerHTML = `<td>${categoria}</td><td>R$ ${valor.toFixed(2)}</td>`;
-            document.getElementById('tabela-despesas').appendChild(novaLinha);
+            // Atualiza o localStorage
+            localStorage.setItem('despesas', JSON.stringify(despesas));
 
-            totalDespesas += valor;
-            document.getElementById('total-despesas').innerText = totalDespesas.toFixed(2);
-            atualizarRendaRestante();
+            // Limpa os campos de entrada
+            document.getElementById('valor').value = '';
+            document.getElementById('categoria-outro').value = '';
+            document.getElementById('categoria').value = 'Alimentação';
+
+            // Atualiza a tabela e o gráfico
+            atualizarTabelaDespesas();
             atualizarGrafico();
-
-            document.getElementById('valor').value = ''; // Limpa o campo de valor
-            if (categoria === 'Outro') {
-                document.getElementById('categoria-outro').value = ''; // Limpa o campo "Outro"
-            }
+            atualizarRendaRestante();
+            mostrarNotificacao('Despesa adicionada com sucesso!');
         }
 
-        // Atualiza a renda restante
-        function atualizarRendaRestante() {
-            const rendaRestante = rendaMensal - totalDespesas;
-            document.getElementById('renda-restante').innerText = rendaRestante.toFixed(2);
-        }
+        // Atualiza a tabela de despesas
+        function atualizarTabelaDespesas() {
+            const tabelaDespesas = document.getElementById('tabela-despesas');
+            tabelaDespesas.innerHTML = '';
 
-        // Atualiza o gráfico de pizza
-        function atualizarGrafico() {
-            graficoGastos.data.datasets[0].data = Object.values(categorias);
-            graficoGastos.update();
-        }
-
-        // Finaliza o mês, salva no histórico e reinicia os dados
-        function finalizarMes() {
-            const dataAtual = new Date();
-            const mesAno = dataAtual.toLocaleString('default', { month: 'long', year: 'numeric' });
-
-            // Salva no histórico
-            historico.push({
-                mes: mesAno,
-                renda: rendaMensal,
-                totalDespesas,
-                rendaRestante: rendaMensal - totalDespesas
+            despesas.forEach((despesa) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${despesa.categoria}</td>
+                    <td>R$ ${despesa.valor.toFixed(2)}</td>
+                `;
+                tabelaDespesas.appendChild(tr);
             });
 
-            // Atualiza a tabela de histórico
-            const novaLinhaHistorico = document.createElement('tr');
-            novaLinhaHistorico.innerHTML = `<td>${mesAno}</td><td>R$ ${rendaMensal.toFixed(2)}</td><td>R$ ${totalDespesas.toFixed(2)}</td><td>R$ ${(rendaMensal - totalDespesas).toFixed(2)}</td>`;
-            document.getElementById('tabela-historico').appendChild(novaLinhaHistorico);
-            document.getElementById('historico-container').style.display = 'block';
+            document.getElementById('total-despesas').innerText = totalDespesas.toFixed(2);
+        }
 
-            // Reinicia os dados
-            despesas = [];
+        // Atualiza o gráfico
+        function atualizarGrafico() {
             categorias = {
                 'Alimentação': 0,
                 'Água': 0,
@@ -301,28 +314,106 @@
                 'Transporte para Tratamentos': 0,
                 'Outro': 0
             };
-            totalDespesas = 0;
-            document.getElementById('tabela-despesas').innerHTML = '';
-            document.getElementById('total-despesas').innerText = '0';
-            document.getElementById('renda-restante').innerText = '0';
-            atualizarGrafico();
 
-            alert(`Mês ${mesAno} finalizado! O histórico foi salvo.`);
+            despesas.forEach((despesa) => {
+                categorias[despesa.categoria] += despesa.valor;
+            });
+
+            graficoGastos.data.datasets[0].data = Object.values(categorias);
+            graficoGastos.update();
         }
 
-        // Exporta os dados para CSV
-        function exportarParaCSV() {
-            let csvContent = "data:text/csv;charset=utf-8,Mês,Renda Mensal (R$),Total de Despesas (R$),Renda Restante (R$)\n";
-            historico.forEach(mes => {
-                csvContent += `${mes.mes},${mes.renda.toFixed(2)},${mes.totalDespesas.toFixed(2)},${mes.rendaRestante.toFixed(2)}\n`;
+        // Atualiza a renda restante
+        function atualizarRendaRestante() {
+            const rendaRestante = rendaMensal - totalDespesas;
+            document.getElementById('renda-restante').innerText = rendaRestante.toFixed(2);
+        }
+
+        // Finaliza o mês e armazena os dados no histórico
+        function finalizarMes() {
+            if (totalDespesas === 0) {
+                alert('Não há despesas para finalizar o mês.');
+                return;
+            }
+
+            const rendaRestante = rendaMensal - totalDespesas;
+            const mesAtual = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
+
+            historico.push({ mes: mesAtual, renda: rendaMensal, totalDespesas, rendaRestante });
+            localStorage.setItem('historico', JSON.stringify(historico)); // Armazena no localStorage
+
+            alert(`Mês finalizado! Renda restante: R$ ${rendaRestante.toFixed(2)}`);
+            // Resetando dados para o próximo mês
+            resetarDados();
+            atualizarTabelaHistorico();
+        }
+
+        // Reseta os dados do mês
+        function resetarDados() {
+            despesas = [];
+            totalDespesas = 0;
+            localStorage.removeItem('despesas'); // Limpa o localStorage
+            document.getElementById('total-despesas').innerText = '0.00';
+            document.getElementById('renda-restante').innerText = '0.00';
+            atualizarTabelaDespesas();
+            atualizarGrafico();
+        }
+
+        // Limpa dados e inicia nova sessão
+        function limparDados() {
+            if (confirm('Tem certeza que deseja limpar todos os dados e começar uma nova sessão?')) {
+                resetarDados();
+                rendaMensal = 0;
+                localStorage.removeItem('rendaMensal'); // Limpa a renda mensal do localStorage
+                document.getElementById('renda').value = '';
+                document.getElementById('historico-container').style.display = 'none';
+                mostrarNotificacao('Dados limpos! Iniciando nova sessão.');
+            }
+        }
+
+        // Atualiza a tabela de histórico
+        function atualizarTabelaHistorico() {
+            const tabelaHistorico = document.getElementById('tabela-historico');
+            tabelaHistorico.innerHTML = '';
+
+            historico.forEach((item) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${item.mes}</td>
+                    <td>R$ ${item.renda.toFixed(2)}</td>
+                    <td>R$ ${item.totalDespesas.toFixed(2)}</td>
+                    <td>R$ ${item.rendaRestante.toFixed(2)}</td>
+                `;
+                tabelaHistorico.appendChild(tr);
             });
+
+            document.getElementById('historico-container').style.display = historico.length > 0 ? 'block' : 'none';
+        }
+
+        // Exporta dados para CSV
+        function exportarParaCSV() {
+            let csvContent = "data:text/csv;charset=utf-8," 
+                + "Mês,Renda Mensal,Total de Despesas,Renda Restante\n" 
+                + historico.map(e => `${e.mes},${e.renda.toFixed(2)},${e.totalDespesas.toFixed(2)},${e.rendaRestante.toFixed(2)}`).join("\n");
 
             const encodedUri = encodeURI(csvContent);
             const link = document.createElement("a");
             link.setAttribute("href", encodedUri);
             link.setAttribute("download", "historico_financeiro.csv");
-            document.body.appendChild(link);
-            link.click();
+            document.body.appendChild(link); // Required for FF
+
+            link.click(); // This will download the data file named "historico_financeiro.csv"
+        }
+
+        // Mostra notificações
+        function mostrarNotificacao(mensagem) {
+            const notification = document.getElementById('notification');
+            notification.innerText = mensagem;
+            notification.style.display = 'block';
+
+            setTimeout(() => {
+                notification.style.display = 'none';
+            }, 3000);
         }
     </script>
 </body>
